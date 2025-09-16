@@ -1,2 +1,3 @@
 # Statistikk-Prosjekt
 wasææææp
+hælla

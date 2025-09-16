@@ -1,1 +1,2 @@
 # Statistikk-Prosjekt
+wasææææp

@@ -5,3 +5,4 @@ hælla
 =======
 dooom
 >>>>>>> Stashed changes
+brosjan jegliker pannekaker

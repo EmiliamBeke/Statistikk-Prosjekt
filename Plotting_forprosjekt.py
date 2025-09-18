@@ -1,117 +1,89 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Tue Sep 16 13:52:58 2025
-
-@author: olehartvigistad
-"""
-
-# 0) Installer (kun hvis nødvendig – kjør i én celle)
-# !pip install pandas openpyxl
-
+#test
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 from pathlib import Path
 
-# 1) Pek på Excel-filen
-excel_path = Path("data.xlsx")  # <- sett riktig navn/sti, f.eks. "/home/jovyan/work/min_fil.xlsx"
+# 1) Pek på Excel-filen (endre hvis nødvendig)
+excel_path = Path(r"C:\Users\isakr\Documents\statistikk\sko_str-høyde.xlsx")
 assert excel_path.exists(), f"Finner ikke {excel_path.resolve()}"
 
-# 2) Finn tilgjengelige ark
+# 2) Les første ark
 xls = pd.ExcelFile(excel_path)
 print("Ark i arbeidsboken:", xls.sheet_names)
+df = pd.read_excel(excel_path, sheet_name=xls.sheet_names[0])
 
-# 3) Les et ark (navn eller indeks). Bruk sheet_names[0] for første ark.
-sheet_to_read = xls.sheet_names[0]
-df = pd.read_excel(excel_path, sheet_name=sheet_to_read)
+# 3) Inspeksjon
+print(df.head(10))
+df.info()
 
-# 4) Kjapp inspeksjon
-display(df.head(10))
-print(df.info())
+# 4) Standardiser kolonnenavn
+df.columns = (df.columns
+              .str.strip()
+              .str.replace(r"\s+", "_", regex=True)
+              .str.replace(r"[^\w_]", "", regex=True)
+              .str.lower())
 
-# 5) (Valgfritt) Standardiser kolonnenavn
-df.columns = (
-    df.columns
-      .str.strip()
-      .str.replace(r"\s+", "_", regex=True)
-      .str.replace(r"[^\w_]", "", regex=True)
-      .str.lower()
-)
-display(df.head(3))
+# Håndter ev. norske bokstaver i navn (valgfritt, gjør koden robust)
+if "høyde" in df.columns:
+    df = df.rename(columns={"høyde": "hoyde"})
+if "skostørrelse" in df.columns:
+    df = df.rename(columns={"skostørrelse": "skostorrelse"})
 
-# 6) (Valgfritt) Konverter dato-/tallkolonner
-# Bytt ut 'dato' og 'beløp' med reelle kolonnenavn i filen din
-for col in ['dato']:
-    if col in df.columns:
-        df[col] = pd.to_datetime(df[col], errors='coerce')
+# --- Regresjon: y = a + b*x (x = skostorrelse, y = hoyde) ---
+df["hoyde"] = pd.to_numeric(df["hoyde"], errors="coerce")
+df["skostorrelse"] = pd.to_numeric(df["skostorrelse"], errors="coerce")
+reg_df = df[["skostorrelse", "hoyde"]].dropna()
 
-for col in ['beløp', 'amount', 'sum']:
-    if col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+x = reg_df["skostorrelse"].to_numpy()
+y = reg_df["hoyde"].to_numpy()
+if x.size < 2:
+    raise ValueError("For få datapunkter til å gjøre lineær regresjon.")
 
-# 7) Eksempel: filtrering
-# Behold rader fra 2024 og nyere (hvis du har en datokolonne)
-if 'dato' in df.columns:
-    df_2024 = df[df['dato'].dt.year >= 2024]
-else:
-    df_2024 = df.copy()
+# polyfit(grad=1) -> [stigning b, konstant a]
+b, a = np.polyfit(x, y, 1)          # y ≈ a + b*x
+y_hat = a + b*x
 
-# 8) Eksempel: gruppér og summer
-# Bytt 'kategori' og 'beløp' til det som gir mening i dine data
-if {'kategori', 'beløp'}.issubset(df_2024.columns):
-    oppsummert = (
-        df_2024
-        .groupby('kategori', dropna=False, as_index=False)['beløp']
-        .sum()
-        .sort_values('beløp', ascending=False)
-    )
-else:
-    oppsummert = df_2024.head(0)  # tomt rammeverk hvis kolonner mangler
+# R^2
+ss_res = np.sum((y - y_hat)**2)
+ss_tot = np.sum((y - np.mean(y))**2)
+r2 = 1 - ss_res/ss_tot if ss_tot > 0 else float("nan")
 
-display(oppsummert)
+print("\nRegresjonslinje: y = a + b*x")
+print(f"a (konstantledd) = {a:.3f}")
+print(f"b (stigning)     = {b:.3f}")
+print(f"R^2              = {r2:.3f}")
 
-# 9) (Valgfritt) Pivot-tabell (endre kolonner etter behov)
-# Eksempel: summer 'beløp' per 'kategori' per 'måned'
-if {'kategori', 'beløp', 'dato'}.issubset(df.columns):
-    df['måned'] = df['dato'].dt.to_period('M').dt.to_timestamp()
-    pivot = pd.pivot_table(
-        df,
-        values='beløp',
-        index='kategori',
-        columns='måned',
-        aggfunc='sum',
-        fill_value=0,
-        margins=True
-    )
-    display(pivot)
+# 5) Plot + lagre PDF
+x_line = np.linspace(x.min(), x.max(), 200)
+y_line = a + b * x_line
 
-# 10) (Valgfritt) En enkel graf
-import matplotlib.pyplot as plt
+plt.figure(figsize=(6, 4))
+plt.scatter(x, y, label="Data")
+plt.plot(x_line, y_line, label=f"y = {a:.2f} + {b:.2f}x")
+plt.xlabel("Skostørrelse")
+plt.ylabel("Høyde (cm)")
+plt.title("Høyde som funksjon av skostørrelse")
+plt.legend()
+plt.tight_layout()
 
-if not oppsummert.empty and 'kategori' in oppsummert and 'beløp' in oppsummert:
-    ax = oppsummert.plot(kind='bar', x='kategori', y='beløp', legend=False, figsize=(8,4))
-    ax.set_title('Sum per kategori')
-    ax.set_xlabel('Kategori')
-    ax.set_ylabel('Beløp')
-    plt.tight_layout()
-    plt.show()
-
-# 11) Lagre resultater
 out_dir = Path("utdata")
 out_dir.mkdir(exist_ok=True)
+pdf_path = out_dir / "regresjon_sko_vs_hoyde.pdf"
+plt.savefig(pdf_path)
+plt.show()
 
-# til CSV
-df_2024.to_csv(out_dir / "filtrert_2024.csv", index=False)
-oppsummert.to_csv(out_dir / "oppsummering_per_kategori.csv", index=False)
+# 6) Lagre parametere (+ valgfritt: renset rådata)
+with open(out_dir / "regresjon_parametre.txt", "w", encoding="utf-8") as f:
+    f.write("Regresjon: y = a + b*x (x=skostorrelse, y=hoyde)\n")
+    f.write(f"a (konstantledd): {a:.6f}\n")
+    f.write(f"b (stigning):     {b:.6f}\n")
+    f.write(f"R^2:              {r2:.6f}\n")
+    f.write(f"Antall punkt:     {len(reg_df)}\n")
 
-# til Excel med flere ark
-with pd.ExcelWriter(out_dir / "resultater.xlsx", engine="openpyxl") as writer:
-    df.to_excel(writer, sheet_name="rådata", index=False)
-    df_2024.to_excel(writer, sheet_name="filtrert_2024", index=False)
-    if not oppsummert.empty:
-        oppsummert.to_excel(writer, sheet_name="oppsummering", index=False)
-    try:
-        pivot.to_excel(writer, sheet_name="pivot")
-    except NameError:
-        pass
+df.to_excel(out_dir / "raadata.xlsx", index=False)  # valgfritt
 
-print("Ferdig! Filer skrevet til:", out_dir.resolve())
+print("Figur lagret til:", pdf_path.resolve())
+print("Parametere lagret til:", (out_dir / "regresjon_parametre.txt").resolve())
